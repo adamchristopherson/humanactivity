@@ -1,0 +1,100 @@
+---
+output: html_document
+---
+# Human Activity Recognition | Adam J. Christopherson
+
+### Background
+
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). We will use this data to predict the class of activity.
+
+### Reading and Cleaning Data
+
+We are provided with a training data set, and a set of 20 observations that we are to 
+predict. We will read in the data, and 
+
+```{r eval = FALSE}
+library(caret)
+
+training <- read.csv("pml-training.csv", na.strings = c("NA", "", "#DIV/0!"))
+testing <- read.csv("pml-testing.csv", na.strings = c("NA", "", "#DIV/0!"))
+```
+
+Let us further clean the data by removing variables that are mostly missing, removing the non-predictive variables and then split the training into a true training set, and
+another for cross validation.
+
+```{r eval=FALSE}
+NAs <- sapply(training, function(x) mean(is.na(x))) > .9
+training <- training[, NAs==FALSE]
+
+trainingTrain <- training[,-(1:6)]
+str(trainingTrain)
+
+set.seed(12345)
+inTrain <- createDataPartition(y=trainingTrain$classe, p=0.75, list=FALSE)
+mytraining <- trainingTrain[inTrain,]
+mytesting <- trainingTrain[-inTrain,]
+```
+
+### Building the Model
+
+We will build a random forest to predict the class of exercise (variable classe).
+The data set is large, with many variables, so let us first take a smaller set of
+the training data to build a model and estimate which variables are most important. 
+
+```{r eval=FALSE}
+inTrain2 <- createDataPartition(y=mytraining$classe, p=0.1, list=FALSE)
+mytrainsmall <- mytraining[inTrain2,]
+
+variableImportanceTest <- train(classe~., method="rf", data=mytrainsmall, prox=TRUE)
+```
+
+We can plot the variable importances
+```{r}
+varImpPlot(variableImportanceTest$finalModel)
+```
+
+From the plot we can see that using a subset of the variables would allow for an accurate
+prediction. We will choose 20 of the variables, since this will be less computationally
+expensive to grow the random forest. We will now build a model on the remaining training
+data.
+
+```{r eval=FALSE}
+VI <- data.frame(varImp(variableImportanceTest)$importance)
+VI$vars <- row.names(VI)
+row.names(VI) <- NULL
+
+preds <- head(VI[order(VI$Overall, decreasing=TRUE),], n=20)
+predNames <- preds$vars
+predNames2 <- paste(predNames, collapse=" + ")
+predNamesForm <- as.formula(paste"classe ~ ", predNames2)
+
+mytrainlarger <- mytraining[-inTrain2,]
+modFitForest <- train(predNamesForm, method="rf", data=mytrainlarger, prox=TRUE)
+```
+
+This produces the following random forest
+
+```{r}
+modFitForest$finalModel
+plot(modFitForest$finalModel)
+```
+
+### Predictions
+
+The out of box error is estimated at 0.19%. We can estimate this expressly through
+our cross validation data set
+
+```{r}
+predForest <- predict(modFitForest, newdata=mytesting)
+confusionMatrix(predForest, mytesting$classe)
+```
+
+giving an estimated accuracy of 99.7%. Finally, we obtain the following predictions
+for the given testing data set:
+
+```{r}
+predict(modFitForest, newdata=testing)
+```
